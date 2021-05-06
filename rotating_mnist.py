@@ -1,10 +1,8 @@
 import os
 import numpy as np
 import torch
-from lib.utils import get_dict_template
-import lib.utils as utils
 from torchvision.datasets.utils import download_url
-from PIL import Image
+from PIL import Image, ImageOps
 from scipy import ndimage
 import idx2numpy
 import gzip
@@ -19,16 +17,18 @@ class RotatingMnist(object):
             n_samples=10**2,
             n_same_initial=1,
             steps_to_skip=20,
-            random_initial=True,
+            initial_random_rotation=True,
             n_angles=2,
+            min_angle=-45,
+            max_angle=45,
             frame_size=128,
             norm_mean=0.1307,
             norm_std=0.3801,
             # same_digit=True,
             specific_digit=None,
-            n_styles=1,
-            mnist_data_path="./data_generators/mnist-images-idx3-ubyte.gz",
-            mnist_labels_path="./data_generators/mnist-labels-idx1-ubyte.gz",
+            n_styles=np.infty,
+            mnist_data_path="./mnist-images-idx3-ubyte.gz",
+            mnist_labels_path="./mnist-labels-idx1-ubyte.gz",
             device=torch.device("cpu"),
             name="RotatingMnist",
     ):
@@ -42,8 +42,9 @@ class RotatingMnist(object):
         else:
             digit_name = "digit_%d" % specific_digit
 
-        self.data_name = "%s_%s_%dx%d_%d_samples_with_%d_timesteps_%d_angles.pt" % (
-            name, digit_name, frame_size, frame_size, n_samples, n_t, n_angles)
+        self.data_name = "%s_%s_%dx%d_%d_samples_with_%d_timesteps_%d_angles_from_%dd_to_%d.pt" % (
+            name, digit_name, frame_size, frame_size, n_samples, n_t, n_angles,
+            min_angle, max_angle)
         self.data_file = os.path.join(self.data_folder, self.data_name)
         self.device = device
 
@@ -51,9 +52,12 @@ class RotatingMnist(object):
         self.n_t = n_t
         self.n_samples = n_samples
         self.n_same_initial = n_same_initial  # n. of trajectories from same z0
-        self.random_initial = random_initial
+        self.initial_random_rotation = initial_random_rotation
         self.steps_to_skip = steps_to_skip
         self.n_angles = n_angles  # n. of unique angles
+        assert min_angle <= max_angle, "min_angle should be <= max_angle"
+        self.min_angle = min_angle
+        self.max_angle = max_angle
 
         # Image properties
         self.mnist = self.load_mnist(mnist_data_path)
@@ -64,7 +68,6 @@ class RotatingMnist(object):
         self.n_styles = n_styles
         self.frame_size = frame_size  # frame size
         self.frame_shape = (self.frame_size, self.frame_size)  # frame size
-        #self.same_digit = same_digit
         self.scale = True
         self.normalize = False
         self.norm_mean = norm_mean
@@ -98,7 +101,8 @@ class RotatingMnist(object):
         os.makedirs(self.data_folder, exist_ok=True)
         train_data, labels = self._generate_random_trajectories()
         torch.save(train_data, self.data_file)
-        np.savetxt("".join(self.data_file.split('.')[:-1]) + "_labels.csv",
+
+        np.savetxt(os.path.splitext(self.data_file)[0] + "_labels.csv",
                    labels.astype(int),
                    fmt='%i',
                    delimiter=',')
@@ -122,30 +126,30 @@ class RotatingMnist(object):
         #chose_digit = np.random.choice(mnist.shape[0], 1)
 
         if self.specific_digit is not None:
+            # Get specific digit indicies
             sd_ind = np.argwhere(self.labels == self.specific_digit).squeeze()
             sd_ind = sd_ind[:min(len(labels), self.n_styles)]
 
-        #angles = np.random.randint(-90, 90, self.n_angles)
-        angles = np.linspace(-45, 45, self.n_angles)
-        z0_iter = -1  #for a record to create label
+        angles = np.linspace(self.min_angle, self.max_angle, self.n_angles)
+        z0_iter = -1  #counter of labels in labels file
         for i in range(self.n_samples):
             # Part of code to generate one trajectory
-            #if not self.same_digit:
-            #    chose_digit = np.random.choice(mnist.shape[0], 1)
-            if self.specific_digit is None:
-                chose_digit = np.random.choice(mnist.shape[0], 1)
-            else:
-                chose_digit = np.random.choice(sd_ind, 1)
-
-            # Choose from original mnist images and scale to self.frame_size
-            mnist_images = Image.fromarray(
-                self.get_picture_array(mnist, chose_digit, shift=0)).resize(
-                    (self.frame_size, self.frame_size), Image.ANTIALIAS)
             if i % self.n_same_initial == 0:
                 z0_iter += 1
+                if self.specific_digit is not None:
+                    chose_digit = np.random.choice(sd_ind, 1)
+                else:
+                    chose_digit = np.random.choice(mnist.shape[0], 1)
+                # Choose from original mnist images and scale to self.frame_size
+                mnist_images = Image.fromarray(
+                    self.get_picture_array(
+                        mnist, chose_digit, shift=0)).resize(
+                            (self.frame_size, self.frame_size),
+                            Image.ANTIALIAS)
+
                 # Randomly rotate initial point
                 digit_z0 = self.arr_from_img(mnist_images)[0]
-                if self.random_initial:
+                if self.initial_random_rotation:
                     angle = np.random.randint(-90, 90, 1)[0]
                     digit_z0 = ndimage.rotate(digit_z0, angle, reshape=False)
 
@@ -193,13 +197,13 @@ class RotatingMnist(object):
         except:
             pass
 
-        # traj = (traj * self.data_max.cpu().numpy() +\
-        #   self.data_min.cpu().numpy())
         traj = (traj * (self.data_max - self.data_min) +\
           self.data_min)
 
         def save_image(data, filename):
-            im = Image.fromarray(data)
+            im = Image.fromarray(
+                np.transpose(data))  #.transpose(Image.ROTATE_90)
+            #im = ImageOps.flip(im)
             if img_w is not None and img_h is not None:
                 n_pics = im.size[0] // im.size[1]  #w//h
                 im = im.resize((img_w * n_pics, img_h))
@@ -207,7 +211,7 @@ class RotatingMnist(object):
 
         def resize_array(data):
             if img_w is not None and img_h is not None:
-                im = Image.fromarray(data)
+                im = Image.fromarray(np.transpose(data))
                 n_pics = im.size[0] // im.size[1]  #w//h
                 im = im.resize((img_w * n_pics, img_h))
                 return np.transpose(self.arr_from_img(im)[0].astype(np.uint8))
@@ -225,12 +229,22 @@ class RotatingMnist(object):
             if concatenate:
                 concat_image.append(image)
             if plot_path is not None and save_separate:
-                save_image(image, ('_%03d.' % t).join(plot_path.split('.')))
+                tmp = list(os.path.splitext(plot_path))
+                if tmp[1] == '':
+                    # Extension
+                    tmp[1] = 'png'
+                save_image(image, tmp[0] + '_%03d.' % t + tmp[1])
 
         if concatenate:
-            concat_image = np.concatenate(concat_image, axis=1)
+            # Concatenate to 0, because we transpose images when save.
+            # Because PIL and numpy have different order of axes
+            concat_image = np.concatenate(concat_image, axis=0)
             if plot_path is not None:
-                save_image(concat_image, '_concat.'.join(plot_path.split('.')))
+                tmp = list(os.path.splitext(plot_path))
+                if tmp[1] == '':
+                    # Extension
+                    tmp[1] = 'png'
+                save_image(concat_image, tmp[0] + '_concat.' + tmp[1])
 
             concat_image = resize_array(concat_image)
             return concat_image
@@ -257,7 +271,8 @@ class RotatingMnist(object):
         with gzip.open(file_path, 'rb') as f:
             data = np.frombuffer(f.read(), np.uint8, offset=16)
 
-        data = data.reshape(-1, 1, 28, 28).transpose(0, 1, 3, 2)
+        #data = data.reshape(-1, 1, 28, 28).transpose(0, 1, 3, 2)
+        data = data.reshape(-1, 1, 28, 28)
         return data  #/ np.float32(255)
 
     def arr_from_img(self, im, shift=0):
