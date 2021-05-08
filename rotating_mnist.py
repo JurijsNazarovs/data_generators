@@ -19,8 +19,8 @@ class RotatingMnist(object):
             steps_to_skip=20,
             initial_random_rotation=True,
             n_angles=2,
-            min_angle=-45,
-            max_angle=45,
+            min_angle=-45,  #negative angle => clockwise
+            max_angle=45,  #negative angle => counter-clockwise
             frame_size=128,
             norm_mean=0.1307,
             norm_std=0.3801,
@@ -163,7 +163,8 @@ class RotatingMnist(object):
             sample = np.empty((self.n_t, 1) + self.frame_shape,
                               dtype=np.float32)  #1 is channel
             digit = digit_z0.copy()
-            for frame_idx in range(self.n_t):
+            sample[0, 0, :, :] = np.squeeze(digit)  #initial position
+            for frame_idx in range(1, self.n_t):
                 digit = ndimage.rotate(digit, angle, reshape=False, cval=0)
                 sample[frame_idx, 0, :, :] = np.squeeze(digit)  #.copy()
 
