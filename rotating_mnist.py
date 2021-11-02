@@ -24,7 +24,6 @@ class RotatingMnist(object):
             frame_size=128,
             norm_mean=0.1307,
             norm_std=0.3801,
-            # same_digit=True,
             specific_digit=None,
             n_styles=np.infty,
             mnist_data_path="./mnist-images-idx3-ubyte.gz",
@@ -33,10 +32,6 @@ class RotatingMnist(object):
             name="RotatingMnist",
     ):
         self.root = root
-        # if same_digit:
-        #    digit_name = "same_digit"
-        # else:
-        #    digit_name = "diff_digit"
         if specific_digit is None:
             digit_name = "digit_random"
         else:
@@ -60,9 +55,11 @@ class RotatingMnist(object):
         self.max_angle = max_angle
 
         # Image properties
-        self.mnist = self.load_mnist(mnist_data_path)
-        self.labels = idx2numpy.convert_from_file(
-            gzip.open(mnist_labels_path, 'r'))
+        self.mnist = self.load_mnist(mnist_data_path, labels=False)
+
+        # self.labels = idx2numpy.convert_from_file(
+        #     gzip.open(mnist_labels_path, 'r'))
+        self.labels = self.load_mnist(mnist_data_path, labels=True)
 
         self.specific_digit = specific_digit
         self.n_styles = n_styles
@@ -250,13 +247,18 @@ class RotatingMnist(object):
             concat_image = resize_array(concat_image)
             return concat_image
 
-    def load_mnist(self, mnist_data_path=None):
+    def load_mnist(self, mnist_data_path=None, labels=False):
         # Loads mnist from web if cannot find locally
         from urllib.request import urlretrieve
         import gzip
-        file_name = "train-images-idx3-ubyte.gz"
+
+        if labels:
+            file_name = "train-labels-idx1-ubyte.gz"
+        else:
+            file_name = "train-images-idx3-ubyte.gz"
+
         if mnist_data_path is None:
-            file_path = self.root + file_name
+            file_path = "%s/%s" % (self.root, file_name)
         else:
             file_path = mnist_data_path
 
@@ -269,11 +271,13 @@ class RotatingMnist(object):
             print("MNIST dataset is loaded from: %s" % file_path)
 
         # Extract data from file and get right shape
-        with gzip.open(file_path, 'rb') as f:
-            data = np.frombuffer(f.read(), np.uint8, offset=16)
-
-        #data = data.reshape(-1, 1, 28, 28).transpose(0, 1, 3, 2)
-        data = data.reshape(-1, 1, 28, 28)
+        if labels:
+            data = idx2numpy.convert_from_file(gzip.open(file_path, 'r'))
+        else:
+            with gzip.open(file_path, 'rb') as f:
+                data = np.frombuffer(f.read(), np.uint8, offset=16)
+            #data = data.reshape(-1, 1, 28, 28).transpose(0, 1, 3, 2)
+            data = data.reshape(-1, 1, 28, 28)
         return data  #/ np.float32(255)
 
     def arr_from_img(self, im, shift=0):
