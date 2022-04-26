@@ -1,7 +1,6 @@
 import os
 import numpy as np
 import torch
-from lib.utils import get_dict_template
 import lib.utils as utils
 from torchvision.datasets.utils import download_url
 from PIL import Image
