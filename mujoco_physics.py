@@ -46,7 +46,7 @@ class HopperPhysics(object):
             print("Loading existing data")
 
         self.data = torch.Tensor(torch.load(self.data_file)).to(device)
-        self.data, self.data_min, self.data_max = utils.normalize_data(
+        self.data, self.data_min, self.data_max = HopperPhysics.normalize_data(
             self.data)
         t = np.arange(0, n_t) / (n_t - 1)
         self.t = torch.tensor(t).to(self.data)
@@ -212,3 +212,23 @@ class HopperPhysics(object):
         s = ('data_file = {data_file}', 'n_samples={n_samples}', 'n_t = {n_t}',
              'fix_eff = {fix_eff}', 'rand_eff_std = {rand_eff_std}')
         return '\n'.join(s).format(**self.__dict__)
+
+    @staticmethod
+    def normalize_data(data):
+        reshaped = data.reshape(-1, data.size(-1))
+
+        att_min = torch.min(reshaped, 0)[0]
+        att_max = torch.max(reshaped, 0)[0]
+
+        # we don't want to divide by zero
+        att_max[att_max == 0.] = 1.
+
+        if (att_max != 0.).all():
+            data_norm = (data - att_min) / att_max
+        else:
+            raise Exception("Zero!")
+
+        if torch.isnan(data_norm).any():
+            raise Exception("nans!")
+
+        return data_norm, att_min, att_max
