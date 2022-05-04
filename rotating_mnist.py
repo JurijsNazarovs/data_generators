@@ -21,6 +21,7 @@ class RotatingMnist(object):
             n_angles=2,
             min_angle=-45,  #negative angle => clockwise
             max_angle=45,  #negative angle => counter-clockwise
+            angle_std=0.1,  #to pertube an angle
             frame_size=128,
             norm_mean=0.1307,
             norm_std=0.3801,
@@ -30,12 +31,15 @@ class RotatingMnist(object):
             mnist_labels_path="./mnist-labels-idx1-ubyte.gz",
             device=torch.device("cpu"),
             name="RotatingMnist",
+            model_type='me',
     ):
         self.root = root
         if specific_digit is None:
             digit_name = "digit_random"
         else:
-            digit_name = "digit_%d" % specific_digit
+            if not isinstance(specific_digit, list):
+                specific_digit = [specific_digit]
+            digit_name = "digit_%s" % specific_digit
 
         self.data_name = "%s_%s_%dx%d_%d_samples_with_%d_timesteps_%d_angles_from_%dd_to_%d.pt" % (
             name, digit_name, frame_size, frame_size, n_samples, n_t, n_angles,
@@ -53,6 +57,8 @@ class RotatingMnist(object):
         assert min_angle <= max_angle, "min_angle should be <= max_angle"
         self.min_angle = min_angle
         self.max_angle = max_angle
+        self.angle_std = angle_std
+        self.model_type = model_type
 
         # Image properties
         self.mnist = self.load_mnist(mnist_data_path, labels=False)
@@ -116,21 +122,38 @@ class RotatingMnist(object):
         #Same inital we simulate from same rotating point
         mnist = self.mnist  # original data set of mnist
         data = np.zeros(
-            (self.n_samples, self.n_t, 1) + self.frame_shape)  #1 ichannel
+            (self.n_samples, self.n_t, 1) + self.frame_shape)  #1 is channel
 
         random_state = np.random.get_state()
         np.random.seed(123)
-        #chose_digit = np.random.choice(mnist.shape[0], 1)
 
         if self.specific_digit is not None:
             # Get specific digit indicies
-            sd_ind = np.argwhere(self.labels == self.specific_digit).squeeze()
-            sd_ind = sd_ind[:min(len(labels), self.n_styles)]
+            #sd_ind = np.argwhere(self.labels == self.specific_digit).squeeze()
+            #sd_ind = sd_ind[:min(len(labels), self.n_styles)]
+            sd_ind = []
+            for dig in self.specific_digit:
+                sd_ind_ = np.argwhere(self.labels == dig).squeeze()
+                sd_ind.extend(sd_ind_[:min(len(labels), self.n_styles)])
 
-        angles = np.linspace(self.min_angle, self.max_angle, self.n_angles)
+        if self.model_type == "me":
+            angles = np.linspace(self.min_angle, self.max_angle, self.n_angles)
+        elif self.model_type == "examplar":
+            angles = {}
+            for dig in self.specific_digit:
+                angles[dig] = np.random.randint(self.min_angle, self.max_angle,
+                                                1)[0]
+            # if len(self.specific_digit) == 2:
+            #     angles[1] = -angles[0]
+
+        else:
+            raise ValueError("Unknown model type for data: " % self.model_type)
+
         z0_iter = -1  #counter of labels in labels file
         for i in range(self.n_samples):
-            # Part of code to generate one trajectory
+            print("%04d/%04d" % (i, self.n_samples), end='\r')
+            ## Part of code to generate one trajectory
+            ## Selecting initial image and position
             if i % self.n_same_initial == 0:
                 z0_iter += 1
                 if self.specific_digit is not None:
@@ -150,20 +173,26 @@ class RotatingMnist(object):
                     angle = np.random.randint(-90, 90, 1)[0]
                     digit_z0 = ndimage.rotate(digit_z0, angle, reshape=False)
 
-            # Generate angle as ME model for every individual
-            #angle = np.random.randint(-90, 90, 1)[0]
-            angle_id = i % len(angles)
-            angle = angles[angle_id]
-            labels[i] = (z0_iter, angle_id)
+            ## Continue to generate the rest of the trajectory
+            # Generate angle
+            if self.model_type == "me":
+                # as ME model for every individual
+                angle_id = i % len(angles)
+                angle = angles[angle_id]
+                labels[i] = (z0_iter, angle_id)
+            elif self.model_type == "examplar":
+                angle_id = self.labels[chose_digit][0]
+                angle = angles[angle_id] + np.random.normal(0, self.angle_std)
+                labels[i] = (z0_iter, angle_id)
 
-            # Make one sample of whole trajectory
+            # Make one sample of a whole trajectory
             sample = np.empty((self.n_t, 1) + self.frame_shape,
                               dtype=np.float32)  #1 is channel
             digit = digit_z0.copy()
             sample[0, 0, :, :] = np.squeeze(digit)  #initial position
             for frame_idx in range(1, self.n_t):
                 digit = ndimage.rotate(digit, angle, reshape=False, cval=0)
-                sample[frame_idx, 0, :, :] = np.squeeze(digit)  #.copy()
+                sample[frame_idx, 0, :, :] = np.squeeze(digit)
 
             sample = np.clip(sample, self.data_min, self.data_max)
             if self.scale:
@@ -175,6 +204,7 @@ class RotatingMnist(object):
             data[i] = sample
 
         # Restore RNG.
+        print('%-10s' % 'Done!')
         np.random.set_state(random_state)
         return data, labels
 
@@ -241,8 +271,8 @@ class RotatingMnist(object):
                 tmp = list(os.path.splitext(plot_path))
                 if tmp[1] == '':
                     # Extension
-                    tmp[1] = 'png'
-                save_image(concat_image, tmp[0] + '_concat.' + tmp[1])
+                    tmp[1] = '.png'
+                save_image(concat_image, tmp[0] + '_concat' + tmp[1])
 
             concat_image = resize_array(concat_image)
             return concat_image
