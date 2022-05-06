@@ -6,9 +6,10 @@ from PIL import Image, ImageOps
 from scipy import ndimage
 import idx2numpy
 import gzip
+import math
 
 
-class RotatingMnist(object):
+class MovingMnist(object):
     def __init__(
             self,
             root,
@@ -18,19 +19,21 @@ class RotatingMnist(object):
             n_same_initial=1,
             steps_to_skip=20,
             initial_random_rotation=True,
-            n_angles=2,
-            min_angle=-45,  #negative angle => clockwise
-            max_angle=45,  #negative angle => counter-clockwise
-            angle_std=0.1,  #to pertube an angle
-            frame_size=128,
+            n_speeds=2,  #nubmer of different moving rate by pixel
+            min_speed=1,  #negative speed => clockwise
+            max_speed=10,  #negative speed => counter-clockwise
+            speed_std=0.1,  #to pertube an speed
+            frame_size=28,
+            digit_size=10,
             norm_mean=0.1307,
             norm_std=0.3801,
             specific_digit=None,
-            n_styles=np.infty,
+            n_digits_p_img=1,  #how many digits should be on one frame
+            n_styles=np.infty,  #per digit how many different styles of it
             mnist_data_path="./mnist-images-idx3-ubyte.gz",
             mnist_labels_path="./mnist-labels-idx1-ubyte.gz",
             device=torch.device("cpu"),
-            name="RotatingMnist",
+            name="MovingMnist",
             model_type='me',
     ):
         self.root = root
@@ -41,9 +44,9 @@ class RotatingMnist(object):
                 specific_digit = [specific_digit]
             digit_name = "digit_%s" % specific_digit
 
-        self.data_name = "%s_%s_%dx%d_%d_samples_with_%d_timesteps_%d_angles_from_%dd_to_%d.pt" % (
-            name, digit_name, frame_size, frame_size, n_samples, n_t, n_angles,
-            min_angle, max_angle)
+        self.data_name = "%s_%s_%dx%d_%d_samples_with_%d_timesteps_%d_speeds_from_%dd_to_%d_fs-%d_ds-%d_ndpf-%d.pt" % (
+            name, digit_name, frame_size, frame_size, n_samples, n_t, n_speeds,
+            min_speed, max_speed, frame_size, digit_size, n_digits_p_img)
         self.data_file = os.path.join(self.data_folder, self.data_name)
         self.device = device
 
@@ -53,11 +56,12 @@ class RotatingMnist(object):
         self.n_same_initial = n_same_initial  # n. of trajectories from same z0
         self.initial_random_rotation = initial_random_rotation
         self.steps_to_skip = steps_to_skip
-        self.n_angles = n_angles  # n. of unique angles
-        assert min_angle <= max_angle, "min_angle should be <= max_angle"
-        self.min_angle = min_angle
-        self.max_angle = max_angle
-        self.angle_std = angle_std
+        self.n_speeds = n_speeds  # n. of unique speeds
+        self.n_digits_p_img = n_digits_p_img
+        assert 1 <= min_speed <= max_speed, "1<=min_speed <= max_speed"
+        self.min_speed = min_speed
+        self.max_speed = max_speed
+        self.speed_std = speed_std
         self.model_type = model_type
 
         # Image properties
@@ -69,6 +73,7 @@ class RotatingMnist(object):
 
         self.specific_digit = specific_digit
         self.n_styles = n_styles
+        self.digit_size = digit_size
         self.frame_size = frame_size  # frame size
         self.frame_shape = (self.frame_size, self.frame_size)  # frame size
         self.scale = True
@@ -91,8 +96,6 @@ class RotatingMnist(object):
             print("Loading existing data")
 
         self.data = torch.Tensor(torch.load(self.data_file)).to(device)
-        # self.data, self.data_min, self.data_max = utils.normalize_data(
-        #     self.data)
 
         t = np.arange(0, n_t) / (n_t - 1)
         self.t = torch.tensor(t).to(self.data)
@@ -129,75 +132,104 @@ class RotatingMnist(object):
 
         if self.specific_digit is not None:
             # Get specific digit indicies
-            #sd_ind = np.argwhere(self.labels == self.specific_digit).squeeze()
-            #sd_ind = sd_ind[:min(len(labels), self.n_styles)]
             sd_ind = []
             for dig in self.specific_digit:
                 sd_ind_ = np.argwhere(self.labels == dig).squeeze()
                 sd_ind.extend(sd_ind_[:min(len(labels), self.n_styles)])
 
-        if self.model_type == "me":
-            angles = np.linspace(self.min_angle, self.max_angle, self.n_angles)
-        elif self.model_type == "examplar":
-            angles = {}
-            for dig in self.specific_digit:
-                angles[dig] = np.random.randint(self.min_angle, self.max_angle,
-                                                1)[0]
-            # if len(self.specific_digit) == 2:
-            #     angles[1] = -angles[0]
+        # Use n_models similar to periodic_1d
+        speeds = np.linspace(self.min_speed, self.max_speed, self.n_speeds)
 
-        else:
-            raise ValueError("Unknown model type for data: " % self.model_type)
+        # if self.model_type == "me":
+        #     speeds = np.linspace(self.min_speed, self.max_speed, self.n_speeds)
+        # elif self.model_type == "examplar":
+        #     speeds = {}
+        #     for dig in self.specific_digit:
+        #         speeds[dig] = np.random.randint(self.min_speed, self.max_speed,
+        #                                         1)[0]
+        # else:
+        #     raise ValueError("Unknown model type for data: " % self.model_type)
 
         z0_iter = -1  #counter of labels in labels file
         for i in range(self.n_samples):
             print("%04d/%04d" % (i, self.n_samples), end='\r')
             ## Part of code to generate one trajectory
-            ## Selecting initial image and position
+            ## Selecting initial image and position each n_same_initial iters
             if i % self.n_same_initial == 0:
                 z0_iter += 1
                 if self.specific_digit is not None:
-                    chose_digit = np.random.choice(sd_ind, 1)
+                    chose_digit = np.random.choice(sd_ind,
+                                                   self.n_digits_p_img,
+                                                   replace=False)
                 else:
-                    chose_digit = np.random.choice(mnist.shape[0], 1)
-                # Choose from original mnist images and scale to self.frame_size
-                mnist_images = Image.fromarray(
-                    self.get_picture_array(
-                        mnist, chose_digit, shift=0)).resize(
-                            (self.frame_size, self.frame_size),
-                            Image.ANTIALIAS)
+                    chose_digit = np.random.choice(mnist.shape[0],
+                                                   self.n_digits_p_img,
+                                                   replace=False)
 
-                # Randomly rotate initial point
-                digit_z0 = self.arr_from_img(mnist_images)[0]
-                if self.initial_random_rotation:
-                    angle = np.random.randint(-90, 90, 1)[0]
-                    digit_z0 = ndimage.rotate(digit_z0, angle, reshape=False)
+                # Choose from original mnist images and scale to self.digit_size
+                mnist_images = [
+                    Image.fromarray(self.get_picture_array(
+                        mnist, r, shift=0)).resize(
+                            (self.digit_size, self.digit_size),
+                            Image.ANTIALIAS) for r in chose_digit
+                ]
 
             ## Continue to generate the rest of the trajectory
-            # Generate angle
-            if self.model_type == "me":
-                # as ME model for every individual
-                angle_id = i % len(angles)
-                angle = angles[angle_id]
-                labels[i] = (z0_iter, angle_id)
-            elif self.model_type == "examplar":
-                angle_id = self.labels[chose_digit][0]
-                angle = angles[angle_id] + np.random.normal(0, self.angle_std)
-                labels[i] = (z0_iter, angle_id)
+            # Generate direc/speed/position, calculate velocity vector
+            # Speed is selected from range, while direcs (and thus velocity),
+            # positions (initial) are random for each sample
+            width, height = self.frame_shape
+            lims = (x_lim, y_lim) = width - \
+                self.digit_size, height - self.digit_size
+
+            # speeds = np.array(self.speed * np.ones(self.n_digits_p_img))
+            speed_id = i % len(speeds)
+            labels[i] = (z0_iter, speed_id)
+            speed = [speeds[speed_id] + np.random.normal(0, self.speed_std)
+                     ] * self.n_digits_p_img
+
+            direcs = np.pi * (np.random.rand(self.n_digits_p_img) * 2 - 1)
+            veloc = [(v * math.cos(d), v * math.sin(d))
+                     for d, v in zip(direcs, speed)]
+            positions = [(np.random.rand() * x_lim, np.random.rand() * y_lim)
+                         for _ in range(self.n_digits_p_img)]
 
             # Make one sample of a whole trajectory
             sample = np.empty((self.n_t, 1) + self.frame_shape,
                               dtype=np.float32)  #1 is channel
-            digit = digit_z0.copy()
-            sample[0, 0, :, :] = np.squeeze(digit)  #initial position
-            for frame_idx in range(1, self.n_t):
-                digit = ndimage.rotate(digit, angle, reshape=False, cval=0)
-                sample[frame_idx, 0, :, :] = np.squeeze(digit)
+            # Generate img at a single time step
+            # Notice that we can have n_digits_p_img
+            for frame_idx in range(self.n_t):
+                canvases = [
+                    Image.new('L', (width, height))
+                    for _ in range(self.n_digits_p_img)
+                ]
+                canvas = np.zeros((1, width, height), dtype=np.float32)
+                for canv_iter, canv in enumerate(canvases):
+                    coords = tuple(
+                        [int(round(p)) for p in positions[canv_iter]])
+                    canv.paste(mnist_images[canv_iter], coords)
+                    canvas += self.arr_from_img(canv, shift=0)
+                # update positions based on velocity
+                next_pos = [(p[0] + v[0], p[1] + v[1])
+                            for p, v in zip(positions, veloc)]
+                # bounce off wall if a we hit one
+                for pos_iter, pos in enumerate(next_pos):
+                    for coord_iter, coord in enumerate(pos):
+                        if coord < -2 or coord > lims[coord_iter] + 2:
+                            veloc[pos_iter] = tuple(
+                                list(veloc[pos_iter][:coord_iter]) +
+                                [-1 * veloc[pos_iter][coord_iter]] +
+                                list(veloc[pos_iter][coord_iter + 1:]))
+                positions = [(p[0] + v[0], p[1] + v[1])
+                             for p, v in zip(positions, veloc)]
+                sample[frame_idx, :, :] = np.squeeze(canvas)
 
             sample = np.clip(sample, self.data_min, self.data_max)
+
             if self.scale:
-                sample = (sample - self.data_min) / \
-                    (self.data_max - self.data_min)
+                sample = (sample - sample.min()) / (sample.max() -
+                                                    sample.min())
             if self.normalize:
                 sample = (sample - self.norm_mean) / self.norm_std
 
@@ -216,7 +248,7 @@ class RotatingMnist(object):
             img_w=None,
             img_h=None,
             save_separate=False,
-            add_frame=True,
+            add_frame=True,  #False,
             **kwargs):
 
         T = len(traj)
@@ -295,6 +327,7 @@ class RotatingMnist(object):
             image = self.get_picture_array(traj[t][None], 0, 0)
             if add_frame:
                 image = make_frame(image)
+            # make frame here
             if concatenate:
                 concat_image.append(image)
             if plot_path is not None and save_separate:
@@ -354,6 +387,7 @@ class RotatingMnist(object):
     def arr_from_img(self, im, shift=0):
         w, h = im.size
         arr = im.getdata()
+
         #c = int(np.product(arr.size) / (w * h))
         c = len(im.getbands())
         return np.asarray(arr, dtype=np.float32).reshape(
@@ -364,6 +398,7 @@ class RotatingMnist(object):
         ret = (X[index] + shift*255).\
             reshape(ch, w, h).transpose(2, 1, 0).clip(0, 255).astype(np.uint8)
         if ch == 1:
+            # otherwise pil cannot plot grey image
             ret = ret.reshape(h, w)
         return ret
 
