@@ -16,7 +16,6 @@ class RotatingMnist(object):
             n_t=10**2,
             n_samples=10**2,
             n_same_initial=1,
-            steps_to_skip=20,
             initial_random_rotation=True,
             n_angles=2,
             min_angle=-45,  #negative angle => clockwise
@@ -52,7 +51,6 @@ class RotatingMnist(object):
         self.n_samples = n_samples
         self.n_same_initial = n_same_initial  # n. of trajectories from same z0
         self.initial_random_rotation = initial_random_rotation
-        self.steps_to_skip = steps_to_skip
         self.n_angles = n_angles  # n. of unique angles
         assert min_angle <= max_angle, "min_angle should be <= max_angle"
         self.min_angle = min_angle
@@ -78,6 +76,7 @@ class RotatingMnist(object):
         self.data_min = 0
         self.data_max = 255
 
+        print("Path to data: %s" % self.data_file)
         if not self._check_exists():
             print('Dataset not found.' +
                   'If download=False, it will be generated.')

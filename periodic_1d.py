@@ -61,6 +61,7 @@ class Periodic1d(object):
         obs_t = np.sort(np.random.choice(range(len(t)), n_t, replace=False))
         np.random.set_state(random_state)
 
+        print("Path to data: %s" % self.data_file)
         if not self._check_exists():
             print('Dataset not found.' +
                   'If download=False, it will be generated.')

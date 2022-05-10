@@ -17,7 +17,6 @@ class MovingMnist(object):
             n_t=10**2,
             n_samples=10**2,
             n_same_initial=1,
-            steps_to_skip=20,
             initial_random_rotation=True,
             n_speeds=2,  #nubmer of different moving rate by pixel
             min_speed=1,  #negative speed => clockwise
@@ -55,7 +54,6 @@ class MovingMnist(object):
         self.n_samples = n_samples
         self.n_same_initial = n_same_initial  # n. of trajectories from same z0
         self.initial_random_rotation = initial_random_rotation
-        self.steps_to_skip = steps_to_skip
         self.n_speeds = n_speeds  # n. of unique speeds
         self.n_digits_p_img = n_digits_p_img
         assert 1 <= min_speed <= max_speed, "1<=min_speed <= max_speed"
@@ -83,6 +81,7 @@ class MovingMnist(object):
         self.data_min = 0
         self.data_max = 255
 
+        print("Path to data: %s" % self.data_file)
         if not self._check_exists():
             print('Dataset not found.' +
                   'If download=False, it will be generated.')
