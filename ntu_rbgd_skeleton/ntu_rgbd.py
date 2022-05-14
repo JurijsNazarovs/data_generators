@@ -278,6 +278,7 @@ class NTU_RGBD(Dataset):
                                newshape=(int(fig.bbox.bounds[3]),
                                          int(fig.bbox.bounds[2]), -1))
         io_buf.close()
+        plt.close()
         data_plot = data_plot[:, :, :3].transpose(2, 0, 1)
         return data_plot
 
