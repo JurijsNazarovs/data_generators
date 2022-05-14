@@ -16,7 +16,12 @@ from torch.utils.data import Dataset
 
 
 class NTU_RGBD(Dataset):
-    def __init__(self, h5_file, keys=None, max_len=50, batch_size=1):
+    def __init__(self,
+                 h5_file,
+                 keys=None,
+                 max_len=50,
+                 batch_size=1,
+                 device='cpu'):
         # Keys are actions
         assert os.path.exists(h5_file), f"HDF5 file {h5_file} does not exist"
         self._h5_file_handle = h5.File(h5_file, 'r')
@@ -24,7 +29,8 @@ class NTU_RGBD(Dataset):
             self._h5_file_handle.keys())
         self.max_len = max_len
         data_seq_len = self._h5_file_handle[f"{self.keys[0]}/pose"].shape[1]
-        self.t = torch.linspace(0., 1., min(data_seq_len, self.max_len))
+        self.t = torch.linspace(0., 1., min(data_seq_len,
+                                            self.max_len)).to(device)
 
         self._key_start_idx = np.zeros(len(self.keys), dtype=np.int64)
         n_data = 0
@@ -35,16 +41,49 @@ class NTU_RGBD(Dataset):
         self.max_idx = n_data
         self.batch_size = batch_size
         self.n_batches = int(np.ceil(self.max_idx / self.batch_size))
+        self.device = device
+
+    def __len__(self):
+        return self.max_idx
 
     def __getitem__(self, index):
         action, idx = self.get_action_idx(index)
 
         pose = torch.tensor(
-            self._h5_file_handle[f"{action}/pose"][idx, :self.max_len])
+            self._h5_file_handle[f"{action}/pose"][idx, :self.max_len]).to(
+                self.device)
         return pose
 
-    def __len__(self):
-        return self.max_idx
+    # def __iter__(self):
+    #     self.batch_idx = 0
+    #     return self
+
+    # def __next__(self):
+    #     batch = self._getbatch(self.batch_idx)
+    #     if batch.shape[0] == 0:
+    #         raise StopIteration
+    #     else:
+    #         self.batch_idx += 1
+    #     return batch
+
+    # def _getbatch(self, batch_idx):
+    #     if self.is_train:
+    #         inds = self.train_idxs
+    #     else:
+    #         inds = self.test_idxs
+    #     start_idx = batch_idx * self.batch_size
+    #     end_idx = min(start_idx + self.batch_size, len(inds))
+
+    #     fnames = [
+    #         "%s/%04d.npy" % (self.datapath, idx)
+    #         for idx in inds[start_idx:end_idx]
+    #     ]
+    #     X_batch = self.load_data(fnames=fnames)
+    #     if self.device is not None:
+    #         X_batch = torch.tensor(X_batch,
+    #                                requires_grad=False).to(self.device)
+
+    #     return X_batch
 
     def get_action_idx(self, global_idx):
         _sub = self._key_start_idx - global_idx
@@ -204,7 +243,7 @@ class NTU_RGBD(Dataset):
         x = x.transpose()  #[25, 3] -> [3, 25]
         # Determine which nodes are connected as bones according to NTU skeleton structure
         # Note that the sequence number starts from 0 and needs to be minus 1
-        arms = np.array([24, 12, 11, 10, 9, 21, 5, 6, 7, 8, 20]) - 1  #Arms
+        arms = np.array([24, 12, 11, 10, 9, 21, 5, 6, 7, 8]) - 1  #Arms
         rightHand = np.array([12, 25]) - 1  #one 's right hand
         leftHand = np.array([8, 23]) - 1  #left hand
         legs = np.array([20, 19, 18, 17, 1, 13, 14, 15, 16]) - 1  #leg
