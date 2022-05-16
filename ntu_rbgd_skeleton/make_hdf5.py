@@ -50,7 +50,7 @@ def make_hdf5(data_root, h5_target):
                 for k in groups
         }
         dataset_len = {k: 0 for k in groups}
-        for file in glob(f"{data_root}/*.SKELETON"):
+        for file in glob(f"{data_root}/*"):
             print(f"Parsing {os.path.basename(file)}")
             matched = re.match(pattern, os.path.basename(file))
             subject_id, action_id = matched.group(1, 2)
