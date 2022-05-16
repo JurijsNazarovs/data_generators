@@ -16,7 +16,7 @@ from torch.utils.data import Dataset
 
 
 class NTU_RGBD(Dataset):
-    def __init__(self, h5_file, keys=None, n_t=50, batch_size=1, device='cpu'):
+    def __init__(self, h5_file, keys=None, n_t=50, batch_size=1, device='cpu', filter_t=True):
         # Keys are actions
         assert os.path.exists(h5_file), f"HDF5 file {h5_file} does not exist"
         self._h5_file_handle = h5.File(h5_file, 'r')
@@ -24,15 +24,22 @@ class NTU_RGBD(Dataset):
             self._h5_file_handle.keys())
         print(self.keys)
         self.n_t = n_t
-        data_seq_len = self._h5_file_handle[f"{self.keys[0]}/pose"].shape[1]
-        self.t = torch.linspace(0., 1., min(data_seq_len, self.n_t)).to(device)
+        max_seq_len = self._h5_file_handle[f"{self.keys[0]}/pose"].shape[1]
+        self.t = torch.linspace(0., 1., min(max_seq_len, self.n_t)).to(device)
 
-        self._key_start_idx = np.zeros(len(self.keys), dtype=np.int64)
+        self._key_start_idx = np.zeros(len(self.keys), dtype=np.int64) # starting index for each key in __getitem__
+        self._key_indices = {} # element indices for each key in the hdf5 dataset
         n_data = 0
 
         for i, k in enumerate(self.keys):
             self._key_start_idx[i] = n_data
-            n_data += self._h5_file_handle[k].attrs['len']
+            if not filter_t:
+                self._key_indices[k] = np.arange(int(self._h5_file_handle[k].attrs['len']))
+            else:
+                seq_len = np.array(self._h5_file_handle[f"{k}/n_frames"])
+                self._key_indices[k] = np.ravel(np.nonzero(seq_len >= n_t))
+                
+            n_data += len(self._key_indices[k])
         self.max_idx = n_data
         self.batch_size = batch_size
         self.n_batches = int(np.ceil(self.max_idx / self.batch_size))
@@ -53,7 +60,7 @@ class NTU_RGBD(Dataset):
         _sub = self._key_start_idx - global_idx
         action_idx = int(np.nonzero(_sub >= 0)[0][0])
         action = self.keys[action_idx]
-        idx = _sub[action_idx]
+        idx = self._key_indices[action][_sub[action_idx]]
         return action, idx
 
     def close(self):
@@ -207,20 +214,20 @@ class NTU_RGBD(Dataset):
         x = x.transpose()  #[25, 3] -> [3, 25]
         # Determine which nodes are connected as bones according to NTU skeleton structure
         # Note that the sequence number starts from 0 and needs to be minus 1
-        arms = np.array([24, 12, 11, 10, 9, 21, 5, 6, 7, 8]) - 1  #Arms
+        arms = np.array([24, 12, 11, 10, 9, 21, 5, 6, 7, 8, 22]) - 1  #Arms
         rightHand = np.array([12, 25]) - 1  #one 's right hand
         leftHand = np.array([8, 23]) - 1  #left hand
         legs = np.array([20, 19, 18, 17, 1, 13, 14, 15, 16]) - 1  #leg
         body = np.array([4, 3, 21, 2, 1]) - 1  #body
-
-        color_point = 'blue'  # '#03ff'  #Joint point color
+        
+        color_joint = 'blue'  # '#03ff'  #Joint point color
         color_bone = 'red'  #Bone color
 
         #fig = plt.figure()  #figsize=(.28, .28))
         fig, ax = plt.subplots()  #figsize=(2, 2))
         ax.axis('off')
         #Drawing joint xs through scatter diagram
-        plt.scatter(x[0, :], x[1, :], c=color_point, s=40.0)
+        plt.scatter(x[0, :], x[1, :], c=color_joint, s=40.0)
         #Draw the connecting line between two xs through the line diagram,
         #that is, the bone
         plt.plot(x[0, arms], x[1, arms], c=color_bone, lw=2.0)
@@ -250,7 +257,8 @@ class NTU_RGBD(Dataset):
 
 
 if __name__ == "__main__":
-    dataset = NTU_RGBD("./nturgb+d.hdf5", n_t=10000)
+    dataset_1 = NTU_RGBD("./nturgb+d.hdf5", n_t=100)
+    dataset_2 = NTU_RGBD("./nturgb+d.hdf5", n_t=10)
 
-    print(len(dataset.t))
-    print(dataset[0].shape)
+    print(len(dataset_1))
+    print(len(dataset_2))
