@@ -58,7 +58,9 @@ class Periodic1d(object):
         t = np.arange(min_t, max_t, dt)
         random_state = np.random.get_state()
         np.random.seed(123)
-        obs_t = np.sort(np.random.choice(range(len(t)), n_t, replace=False))
+        #obs_t = np.sort(np.random.choice(range(len(t)), n_t, replace=False))
+        obs_t = np.linspace(0, len(t) - 1, n_t).astype(int)
+
         np.random.set_state(random_state)
 
         print("Path to data: %s" % self.data_file)
@@ -178,8 +180,8 @@ def make_data(ts,
         y0_mean_ = np.array((2, -2))
     else:
         amp_coef = np.random.rand(n_models) * 2 - 1  #runif(0, 1)
-        freq_coef = np.random.rand(n_models) * 2 - 1  #np.array(1)
-        y0_mean_ = np.random.normal(loc=y0_mean, scale=2, size=n_models)
+        freq_coef = np.random.uniform(0.3, 4, n_models)
+        y0_mean_ = np.random.normal(loc=y0_mean, scale=0, size=n_models)
 
     if 'freq' not in model_type:
         freq_coef = 1

@@ -19,7 +19,7 @@ class HopperPhysics(object):
             device=torch.device("cpu"),
             steps_to_skip=20,
             min_height=1000,  #to avoid hitting ground
-            state=('hopper', 'stand'),
+            state=['hopper', 'stand'],
             name="Mujoco"):
         self.root = root
         self.data_name = "%s_%s_%d_samples_with_%d_timesteps_%d_speeds_from_%d_to_%d.pt" % (

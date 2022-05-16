@@ -135,18 +135,20 @@ class RotatingMnist(object):
                 sd_ind_ = np.argwhere(self.labels == dig).squeeze()
                 sd_ind.extend(sd_ind_[:min(len(labels), self.n_styles)])
 
-        if self.model_type == "me":
-            angles = np.linspace(self.min_angle, self.max_angle, self.n_angles)
-        elif self.model_type == "examplar":
-            angles = {}
-            for dig in self.specific_digit:
-                angles[dig] = np.random.randint(self.min_angle, self.max_angle,
-                                                1)[0]
-            # if len(self.specific_digit) == 2:
-            #     angles[1] = -angles[0]
+        angles = np.linspace(self.min_angle, self.max_angle,
+                             self.n_angles)  #me
+        # if self.model_type == "me":
+        #     angles = np.linspace(self.min_angle, self.max_angle, self.n_angles)
+        # elif self.model_type == "examplar":
+        #     angles = {}
+        #     for dig in self.specific_digit:
+        #         angles[dig] = np.random.randint(self.min_angle, self.max_angle,
+        #                                         1)[0]
+        #     # if len(self.specific_digit) == 2:
+        #     #     angles[1] = -angles[0]
 
-        else:
-            raise ValueError("Unknown model type for data: " % self.model_type)
+        # else:
+        #     raise ValueError("Unknown model type for data: " % self.model_type)
 
         z0_iter = -1  #counter of labels in labels file
         for i in range(self.n_samples):
