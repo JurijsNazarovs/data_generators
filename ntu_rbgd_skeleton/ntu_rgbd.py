@@ -58,9 +58,9 @@ class NTU_RGBD(Dataset):
 
     def get_action_idx(self, global_idx):
         _sub = self._key_start_idx - global_idx
-        action_idx = int(np.nonzero(_sub >= 0)[0][0])
+        action_idx = int(np.nonzero(_sub <= 0)[0][-1])
         action = self.keys[action_idx]
-        idx = self._key_indices[action][_sub[action_idx]]
+        idx = self._key_indices[action][-_sub[action_idx]]
         return action, idx
 
     def close(self):
@@ -262,3 +262,8 @@ if __name__ == "__main__":
 
     print(len(dataset_1))
     print(len(dataset_2))
+
+    from tqdm import tqdm
+
+    [dataset_1[i] for i in tqdm(range(len(dataset_1)))]
+    [dataset_2[i] for i in tqdm(range(len(dataset_2)))]
