@@ -16,7 +16,14 @@ from torch.utils.data import Dataset
 
 
 class NTU_RGBD(Dataset):
-    def __init__(self, h5_file, keys=None, n_t=50, batch_size=1, device='cpu', filter_t=True):
+    def __init__(self,
+                 h5_file,
+                 keys=None,
+                 n_t=50,
+                 batch_size=1,
+                 device='cpu',
+                 filter_t=False,
+                 n_steps_skip=0):
         # Keys are actions
         assert os.path.exists(h5_file), f"HDF5 file {h5_file} does not exist"
         self._h5_file_handle = h5.File(h5_file, 'r')
@@ -27,23 +34,28 @@ class NTU_RGBD(Dataset):
         max_seq_len = self._h5_file_handle[f"{self.keys[0]}/pose"].shape[1]
         self.t = torch.linspace(0., 1., min(max_seq_len, self.n_t)).to(device)
 
-        self._key_start_idx = np.zeros(len(self.keys), dtype=np.int64) # starting index for each key in __getitem__
-        self._key_indices = {} # element indices for each key in the hdf5 dataset
+        self._key_start_idx = np.zeros(
+            len(self.keys),
+            dtype=np.int64)  # starting index for each key in __getitem__
+        self._key_indices = {
+        }  # element indices for each key in the hdf5 dataset
         n_data = 0
 
         for i, k in enumerate(self.keys):
             self._key_start_idx[i] = n_data
             if not filter_t:
-                self._key_indices[k] = np.arange(int(self._h5_file_handle[k].attrs['len']))
+                self._key_indices[k] = np.arange(
+                    int(self._h5_file_handle[k].attrs['len']))
             else:
                 seq_len = np.array(self._h5_file_handle[f"{k}/n_frames"])
                 self._key_indices[k] = np.ravel(np.nonzero(seq_len >= n_t))
-                
+
             n_data += len(self._key_indices[k])
         self.max_idx = n_data
         self.batch_size = batch_size
         self.n_batches = int(np.ceil(self.max_idx / self.batch_size))
         self.device = device
+        self.n_steps_skip = n_steps_skip
 
     def __len__(self):
         return self.max_idx
@@ -51,9 +63,15 @@ class NTU_RGBD(Dataset):
     def __getitem__(self, index):
         action, idx = self.get_action_idx(index)
 
-        pose = torch.tensor(
-            self._h5_file_handle[f"{action}/pose"][idx, :self.n_t]).to(
-                self.device)
+        if self.n_steps_skip > 0:
+            pose = torch.tensor(self._h5_file_handle[f"{action}/pose"][
+                idx, ::self.n_steps_skip]).to(self.device)
+            pose = pose[:self.
+                        n_t]  #because we select specific idx, so first position is time
+        else:
+            pose = torch.tensor(
+                self._h5_file_handle[f"{action}/pose"][idx, :self.n_t]).to(
+                    self.device)
         return pose
 
     def get_action_idx(self, global_idx):
@@ -219,7 +237,7 @@ class NTU_RGBD(Dataset):
         leftHand = np.array([8, 23]) - 1  #left hand
         legs = np.array([20, 19, 18, 17, 1, 13, 14, 15, 16]) - 1  #leg
         body = np.array([4, 3, 21, 2, 1]) - 1  #body
-        
+
         color_joint = 'blue'  # '#03ff'  #Joint point color
         color_bone = 'red'  #Bone color
 
@@ -258,10 +276,12 @@ class NTU_RGBD(Dataset):
 
 if __name__ == "__main__":
     dataset_1 = NTU_RGBD("./nturgb+d.hdf5", n_t=100)
-    dataset_2 = NTU_RGBD("./nturgb+d.hdf5", n_t=10)
+    dataset_2 = NTU_RGBD("./nturgb+d.hdf5", n_t=10, n_steps_skip=10)
 
     print(len(dataset_1))
+    print(dataset_1[0].shape)
     print(len(dataset_2))
+    print(dataset_2[0].shape)
 
     from tqdm import tqdm
 
